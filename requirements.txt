@@ -1,0 +1,7 @@
+streamlit
+pandas
+sqlalchemy
+pydantic
+pydantic-settings
+openpyxl
+reportlab
