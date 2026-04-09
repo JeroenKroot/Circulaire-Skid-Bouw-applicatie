@@ -41,17 +41,39 @@ def build_component_label(component) -> str:
     return f"{component.component_code} | {component.merk} | {component.type}"
 
 
-def _handle_component_selection_change(select_key: str, position_code: str) -> None:
-    """Werk het actieve label in de visual bij op basis van de dropdownkeuze."""
-    selected_value = st.session_state.get(select_key, "NVT")
+def _ensure_active_visual_labels_state() -> None:
+    """Initialiseer de session state voor actieve labels indien nodig."""
+    if "active_visual_labels" not in st.session_state:
+        st.session_state.active_visual_labels = set()
 
-    # # Alleen groen maken als er echt iets anders dan N.v.t. gekozen is.
-    if selected_value == "NVT":
-        st.session_state.active_visual_label = None
-        return
 
-    image_label = POSITION_TO_IMAGE_LABEL.get(position_code)
-    st.session_state.active_visual_label = image_label
+def _rebuild_active_visual_labels() -> None:
+    """Bepaal alle actieve image-labels op basis van de huidige dropdownselecties.
+
+    Een label blijft groen zolang de gekoppelde dropdown niet op N.v.t. staat.
+    Zodra een dropdown weer op N.v.t. wordt gezet, verdwijnt alleen dat specifieke
+    label uit de actieve set.
+    """
+    active_labels: set[str] = set()
+
+    for position in SET_POSITIONS:
+        position_code = str(position["position_code"])
+        select_key = f"select_{position_code}"
+        selected_value = st.session_state.get(select_key, "NVT")
+
+        if selected_value == "NVT":
+            continue
+
+        image_label = POSITION_TO_IMAGE_LABEL.get(position_code)
+        if image_label:
+            active_labels.add(image_label)
+
+    st.session_state.active_visual_labels = active_labels
+
+
+def _handle_component_selection_change() -> None:
+    """Werk alle actieve visuele labels opnieuw bij na een dropdownwijziging."""
+    _rebuild_active_visual_labels()
 
 
 def render_component_select(
@@ -62,29 +84,22 @@ def render_component_select(
     position_code: str,
 ):
     """Render een component-selectbox en koppel wijziging aan de afbeelding."""
-    # # Haal alle componentopties op voor deze familie.
     components = list_component_options(session, family)
-
-    # # Voeg N.v.t. toe als standaardoptie.
     option_keys = ["NVT"] + [component.selection_code for component in components]
 
-    # # Bouw een leesbare mapping voor de dropdown.
     option_map = {
         component.selection_code: build_component_label(component)
         for component in components
     }
 
-    # # Render de selectbox en koppel een callback aan wijziging.
     selected_key = st.selectbox(
         label,
         options=option_keys,
         format_func=lambda value: "N.v.t." if value == "NVT" else option_map[value],
         key=key,
         on_change=_handle_component_selection_change,
-        args=(key, position_code),
     )
 
-    # # Geen component ophalen als N.v.t. geselecteerd is.
     if selected_key == "NVT":
         return None
 
@@ -131,11 +146,9 @@ def _highlight_label_region(
     x1, y1, x2, y2 = label_area["bbox"]
     radius = int(label_area["radius"])
 
-    # # Snijd het labelgebied uit.
     crop = image.crop((x1, y1, x2, y2)).convert("RGBA")
     crop_array = np.array(crop)
 
-    # # Maak een mask voor de afgeronde vorm van het labelvlak.
     mask_image = Image.new("L", (crop.width, crop.height), 0)
     mask_draw = ImageDraw.Draw(mask_image)
     mask_draw.rounded_rectangle(
@@ -145,12 +158,10 @@ def _highlight_label_region(
     )
     rounded_mask = np.array(mask_image) > 0
 
-    # # Detecteer de lichte vulpixels van het witte label.
     rgb = crop_array[:, :, :3].astype(np.uint8)
     brightness = rgb.mean(axis=2)
     color_spread = rgb.max(axis=2) - rgb.min(axis=2)
 
-    # # Alleen de lichte, weinig verzadigde pixels binnen het labelvlak kleuren.
     fill_mask = (
         rounded_mask
         & (brightness >= 218)
@@ -158,12 +169,10 @@ def _highlight_label_region(
         & (crop_array[:, :, 3] > 0)
     )
 
-    # # Kleur de witte vulpixels groen.
     crop_array[fill_mask, 0] = ACTIVE_LABEL_RGB[0]
     crop_array[fill_mask, 1] = ACTIVE_LABEL_RGB[1]
     crop_array[fill_mask, 2] = ACTIVE_LABEL_RGB[2]
 
-    # # Plaats de aangepaste crop terug in de afbeelding.
     updated_crop = Image.fromarray(crop_array, mode="RGBA")
     updated_image = image.copy()
     updated_image.paste(updated_crop, (x1, y1))
@@ -171,15 +180,19 @@ def _highlight_label_region(
     return updated_image
 
 
-def _build_visual_image(image_path: Path, active_label: str | None) -> Image.Image:
-    """Bouw de preview-afbeelding op, inclusief actieve labelhighlight."""
+def _build_visual_image(image_path: Path, active_labels: set[str] | None) -> Image.Image:
+    """Bouw de preview-afbeelding op, inclusief alle actieve labelhighlights."""
     base_image = _get_base_preview_image(image_path)
 
-    # # Geen actief label betekent: originele afbeelding tonen.
-    if not active_label:
+    if not active_labels:
         return base_image
 
-    return _highlight_label_region(base_image, active_label)
+    updated_image = base_image.copy()
+
+    for label_code in active_labels:
+        updated_image = _highlight_label_region(updated_image, label_code)
+
+    return updated_image
 
 
 def render_visual_panel() -> None:
@@ -188,10 +201,10 @@ def render_visual_panel() -> None:
 
     image_path = _get_preview_image_path()
     pdf_path = Path("assets/W-PF-5000-000-0-01.pdf")
-    active_label = st.session_state.get("active_visual_label")
+    active_labels = st.session_state.get("active_visual_labels", set())
 
     if image_path is not None:
-        visual_image = _build_visual_image(image_path, active_label)
+        visual_image = _build_visual_image(image_path, active_labels)
         st.image(visual_image, use_container_width=True)
     elif pdf_path.exists():
         st.info("Plaats een PNG in assets/LBK_Preview.png voor de mooiste weergave.")
@@ -299,8 +312,8 @@ def render_app(settings) -> None:
     if "active_step" not in st.session_state:
         st.session_state.active_step = "configuratie"
 
-    if "active_visual_label" not in st.session_state:
-        st.session_state.active_visual_label = None
+    _ensure_active_visual_labels_state()
+    _rebuild_active_visual_labels()
 
     render_stepbar(st.session_state.active_step)
 
