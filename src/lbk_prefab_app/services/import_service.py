@@ -31,6 +31,20 @@ def _normalize_text(value) -> str | None:
     return text
 
 
+def _normalize_float(value) -> float:
+    """Zet Excel/CSV-waarden veilig om naar float."""
+    if pd.isna(value):
+        return 0.0
+
+    if isinstance(value, str):
+        value = value.strip().replace(",", ".")
+
+    if value in {"", None}:
+        return 0.0
+
+    return float(value)
+
+
 def _component_family(component_code: str) -> str:
     """Bepaal de componentfamilie op basis van de broncode."""
     code = component_code.upper()
@@ -41,9 +55,11 @@ def _component_family(component_code: str) -> str:
         return "IRA01"
     if code.startswith("AF01"):
         return "AF01"
+    if code.startswith("RA-01"):
+        return "RA-01"
     if code.startswith("TI01"):
         return "TI01"
-    if code.startswith("TT01"):
+    if code.startswith("TT01") or code.startswith("TT"):
         return "TT01"
     if code.startswith("VA01"):
         return "VA01"
@@ -73,39 +89,15 @@ def _build_selection_code(row: pd.Series, index: int) -> str:
 
 
 def _seed_price_rule(component: Component) -> PriceRule:
-    """Genereer een prototype-prijsregel op basis van componentcategorie."""
-    if component.component_family == "CP01":
-        price = max(220.0, component.gewicht_kg * 110.0)
-        minutes = 18.0
-    elif component.component_family == "IRA01":
-        price = max(45.0, component.gewicht_kg * 95.0)
-        minutes = 8.0
-    elif component.component_family == "AF01":
-        price = max(35.0, component.gewicht_kg * 85.0)
-        minutes = 6.0
-    elif component.component_family == "TI01":
-        price = 25.0
-        minutes = 4.0
-    elif component.component_family == "TT01":
-        price = 75.0
-        minutes = 8.0
-    elif component.component_family == "VA01":
-        price = 30.0
-        minutes = 5.0
-    elif component.component_family == "S":
-        price = max(8.0, component.gewicht_kg * 4.5)
-        minutes = 6.0
-    elif component.component_family == "FF":
-        price = max(10.0, component.gewicht_kg * 12.5)
-        minutes = 4.0
-    else:
-        price = max(10.0, component.gewicht_kg * 20.0)
-        minutes = 5.0
+    """Maak een price rule aan op basis van de echte verkoopprijs.
 
+    Deze tabel blijft voorlopig bestaan voor compatibiliteit, maar de app
+    rekent straks met component.prijs_verkoop.
+    """
     return PriceRule(
         selection_code=component.selection_code,
-        material_price_eur=round(price, 2),
-        assembly_minutes=minutes,
+        material_price_eur=round(float(component.prijs_verkoop or 0.0), 2),
+        assembly_minutes=0.0,
         is_pipe=component.component_family in {"S", "FF"},
     )
 
@@ -117,7 +109,11 @@ def seed_database_if_needed(settings: AppSettings) -> None:
         session.query(Component).delete()
         session.commit()
 
-        source_path = settings.source_xlsx_path if settings.source_xlsx_path.exists() else settings.source_csv_path
+        source_path = (
+            settings.source_xlsx_path
+            if settings.source_xlsx_path.exists()
+            else settings.source_csv_path
+        )
         logger.info("Lees bronbestand: %s", source_path)
 
         if source_path.suffix.lower() == ".csv":
@@ -139,23 +135,28 @@ def seed_database_if_needed(settings: AppSettings) -> None:
                     omschrijving=str(row["Omschrijving"]).strip(),
                     component_code=component_code,
                     component_family=_component_family(component_code),
+                    prijs_verkoop=_normalize_float(row.get("prijs verkoop", 0.0)),
                     artikelnummer_eriks=_normalize_text(row.get("Artikelnummer Eriks")),
                     artikelnummer_tu=_normalize_text(row.get("Artikelnummer TU")),
-                    co2_eq_kg=float(row["Co2 eq kg"]),
-                    gewicht_kg=float(row["Gewicht [kg]"]),
-                    gietijzer=float(row.get("Gietijzer", 0.0) or 0.0),
-                    metalen=float(row.get("Metalen", 0.0) or 0.0),
-                    fossiele_materialen=float(row.get("Fossiele materialen", 0.0) or 0.0),
-                    aluminium=float(row.get("Aluminium", 0.0) or 0.0),
-                    staal=float(row.get("Staal", 0.0) or 0.0),
-                    rvs=float(row.get("RVS", 0.0) or 0.0),
-                    koper=float(row.get("Koper", 0.0) or 0.0),
-                    brons=float(row.get("Brons", 0.0) or 0.0),
-                    keramiek=float(row.get("Keramiek", 0.0) or 0.0),
-                    rubber=float(row.get("Rubber", 0.0) or 0.0),
-                    polymeren_en_composieten=float(row.get("polymeren en compositen", 0.0) or 0.0),
-                    injectie_gevormde_magneet=float(row.get("Injectie gevormde magneet", 0.0) or 0.0),
-                    elektra=float(row.get("elektra", 0.0) or 0.0),
+                    co2_eq_kg=_normalize_float(row.get("Co2 eq kg", 0.0)),
+                    gewicht_kg=_normalize_float(row.get("Gewicht [kg]", 0.0)),
+                    gietijzer=_normalize_float(row.get("Gietijzer", 0.0)),
+                    metalen=_normalize_float(row.get("Metalen", 0.0)),
+                    fossiele_materialen=_normalize_float(row.get("Fossiele materialen", 0.0)),
+                    aluminium=_normalize_float(row.get("Aluminium", 0.0)),
+                    staal=_normalize_float(row.get("Staal", 0.0)),
+                    rvs=_normalize_float(row.get("RVS", 0.0)),
+                    koper=_normalize_float(row.get("Koper", 0.0)),
+                    brons=_normalize_float(row.get("Brons", 0.0)),
+                    keramiek=_normalize_float(row.get("Keramiek", 0.0)),
+                    rubber=_normalize_float(row.get("Rubber", 0.0)),
+                    polymeren_en_composieten=_normalize_float(
+                        row.get("polymeren en compositen", 0.0)
+                    ),
+                    injectie_gevormde_magneet=_normalize_float(
+                        row.get("Injectie gevormde magneet", 0.0)
+                    ),
+                    elektra=_normalize_float(row.get("elektra", 0.0)),
                 )
 
                 components.append(component)

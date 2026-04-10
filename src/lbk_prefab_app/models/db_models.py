@@ -16,7 +16,12 @@ class Component(Base):
     __tablename__ = "components"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    selection_code: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    selection_code: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
 
     merk: Mapped[str] = mapped_column(String(120), nullable=False)
     type: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -24,6 +29,10 @@ class Component(Base):
 
     component_code: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     component_family: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+
+    # # Nieuwe kolom: echte verkoopprijs uit Excel.
+    # # Deze wordt straks direct gebruikt in de app voor stukprijs of meterprijs.
+    prijs_verkoop: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
     artikelnummer_eriks: Mapped[str | None] = mapped_column(String(100), nullable=True)
     artikelnummer_tu: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -52,7 +61,12 @@ class PriceRule(Base):
     __tablename__ = "price_rules"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    selection_code: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    selection_code: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
     material_price_eur: Mapped[float] = mapped_column(Float, nullable=False)
     assembly_minutes: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     is_pipe: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

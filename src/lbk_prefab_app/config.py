@@ -25,5 +25,5 @@ class AppSettings(BaseSettings):
     surcharge_pct: float = 0.15
     margin_pct: float = 0.05
     database_url: str = "sqlite:///data/app.db"
-    source_xlsx_path: Path = Field(default=Path("data/source/input app.xlsx"))
-    source_csv_path: Path = Field(default=Path("data/source/input app.csv"))
+    source_xlsx_path: Path = Field(default=Path("data/source/input appv2.xlsx"))
+    source_csv_path: Path = Field(default=Path("data/source/input appv2.csv"))

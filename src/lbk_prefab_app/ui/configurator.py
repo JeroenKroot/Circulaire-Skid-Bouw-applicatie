@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from PIL import Image, ImageDraw
-from sqlalchemy import select
 
 # Eigen modules
 from src.lbk_prefab_app.constants import (
@@ -20,7 +19,6 @@ from src.lbk_prefab_app.constants import (
     SET_POSITIONS,
 )
 from src.lbk_prefab_app.database import get_session
-from src.lbk_prefab_app.models.db_models import PriceRule
 from src.lbk_prefab_app.services.calculation_service import (
     calculate_component_co2,
     calculate_material_passport,
@@ -37,8 +35,10 @@ from src.lbk_prefab_app.ui.styles import get_app_css
 
 
 def build_component_label(component) -> str:
-    """Bouw een leesbaar label voor een componentoptie."""
-    return f"{component.component_code} | {component.merk} | {component.type}"
+    """Toon componentcode gevolgd door type."""
+    component_code = str(getattr(component, "component_code", "")).strip()
+    component_type = str(getattr(component, "type", "")).strip()
+    return f"{component_code} - {component_type}"
 
 
 def _ensure_active_visual_labels_state() -> None:
@@ -48,12 +48,7 @@ def _ensure_active_visual_labels_state() -> None:
 
 
 def _rebuild_active_visual_labels() -> None:
-    """Bepaal alle actieve image-labels op basis van de huidige dropdownselecties.
-
-    Een label blijft groen zolang de gekoppelde dropdown niet op N.v.t. staat.
-    Zodra een dropdown weer op N.v.t. wordt gezet, verdwijnt alleen dat specifieke
-    label uit de actieve set.
-    """
+    """Bepaal alle actieve image-labels op basis van de huidige dropdowns."""
     active_labels: set[str] = set()
 
     for position in SET_POSITIONS:
@@ -81,10 +76,10 @@ def render_component_select(
     label: str,
     family: str,
     key: str,
-    position_code: str,
 ):
     """Render een component-selectbox en koppel wijziging aan de afbeelding."""
     components = list_component_options(session, family)
+
     option_keys = ["NVT"] + [component.selection_code for component in components]
 
     option_map = {
@@ -134,11 +129,7 @@ def _highlight_label_region(
     image: Image.Image,
     label_code: str,
 ) -> Image.Image:
-    """Maak het bestaande witte labelvlak in de afbeelding groen.
-
-    Hierbij blijven tekst en rand zoveel mogelijk intact doordat alleen
-    de lichte vulpixels binnen het afgeronde labelvlak worden aangepast.
-    """
+    """Maak het bestaande witte labelvlak in de afbeelding groen."""
     label_area = IMAGE_LABEL_AREAS.get(label_code)
     if label_area is None:
         return image
@@ -200,14 +191,11 @@ def render_visual_panel() -> None:
     st.markdown('<div class="card">', unsafe_allow_html=True)
 
     image_path = _get_preview_image_path()
-    pdf_path = Path("assets/W-PF-5000-000-0-01.pdf")
     active_labels = st.session_state.get("active_visual_labels", set())
 
     if image_path is not None:
         visual_image = _build_visual_image(image_path, active_labels)
         st.image(visual_image, use_container_width=True)
-    elif pdf_path.exists():
-        st.info("Plaats een PNG in assets/LBK_Preview.png voor de mooiste weergave.")
     else:
         st.warning("Geen visualisatiebestand gevonden.")
 
@@ -215,39 +203,36 @@ def render_visual_panel() -> None:
 
 
 def _build_live_results(
-    settings,
     session,
     selected_components,
     selected_pipe_key: str,
     pipe_length: float,
 ):
     """Bereken de live resultaten van de huidige configuratie."""
-    items_with_price_rules = []
+    priced_items: list[tuple[object, float]] = []
     total_co2 = 0.0
     material_totals = defaultdict(float)
     bom_rows = []
 
     for component, quantity in selected_components:
-        rule = session.scalar(
-            select(PriceRule).where(PriceRule.selection_code == component.selection_code)
-        )
-        if rule is None:
-            continue
-
-        items_with_price_rules.append((component, quantity, rule))
+        priced_items.append((component, quantity))
         total_co2 += calculate_component_co2(component, quantity)
 
         for material_name, value in calculate_material_passport(component, quantity).items():
             material_totals[material_name] += value
 
+        unit_price = float(getattr(component, "prijs_verkoop", 0.0) or 0.0)
+
         bom_rows.append(
             {
                 "Artikel": component.component_code,
-                "Artikelnummer": component.artikelnummer_eriks
-                or component.artikelnummer_tu
+                "Artikelnummer": getattr(component, "artikelnummer_eriks", None)
+                or getattr(component, "artikelnummer_tu", None)
                 or "-",
                 "Omschrijving": component.omschrijving,
                 "Aantal": quantity,
+                "Prijs per stuk": unit_price,
+                "Totaal": round(unit_price * quantity, 2),
             }
         )
 
@@ -255,37 +240,31 @@ def _build_live_results(
         pipe_component = get_component_by_selection_code(session, selected_pipe_key)
 
         if pipe_component is not None:
-            pipe_rule = session.scalar(
-                select(PriceRule).where(
-                    PriceRule.selection_code == pipe_component.selection_code
-                )
+            priced_items.append((pipe_component, pipe_length))
+            total_co2 += calculate_component_co2(pipe_component, pipe_length)
+
+            for material_name, value in calculate_material_passport(
+                pipe_component,
+                pipe_length,
+            ).items():
+                material_totals[material_name] += value
+
+            meter_price = float(getattr(pipe_component, "prijs_verkoop", 0.0) or 0.0)
+
+            bom_rows.append(
+                {
+                    "Artikel": pipe_component.component_code,
+                    "Artikelnummer": getattr(pipe_component, "artikelnummer_eriks", None)
+                    or getattr(pipe_component, "artikelnummer_tu", None)
+                    or "-",
+                    "Omschrijving": f"{pipe_component.omschrijving} ({pipe_length:.1f} m)",
+                    "Aantal": pipe_length,
+                    "Prijs per stuk": meter_price,
+                    "Totaal": round(meter_price * pipe_length, 2),
+                }
             )
 
-            if pipe_rule is not None:
-                items_with_price_rules.append((pipe_component, pipe_length, pipe_rule))
-                total_co2 += calculate_component_co2(pipe_component, pipe_length)
-
-                for material_name, value in calculate_material_passport(
-                    pipe_component,
-                    pipe_length,
-                ).items():
-                    material_totals[material_name] += value
-
-                bom_rows.append(
-                    {
-                        "Artikel": pipe_component.component_code,
-                        "Artikelnummer": pipe_component.artikelnummer_eriks
-                        or pipe_component.artikelnummer_tu
-                        or "-",
-                        "Omschrijving": f"{pipe_component.omschrijving} ({pipe_length:.1f} m)",
-                        "Aantal": pipe_length,
-                    }
-                )
-
-    price_summary = calculate_sales_price(
-        settings=settings,
-        selected_items=items_with_price_rules,
-    )
+    price_summary = calculate_sales_price(priced_items)
 
     material_rows = [
         {"Materiaal": name, "Totaal (kg)": round(value, 3)}
@@ -294,7 +273,7 @@ def _build_live_results(
     ]
 
     return {
-        "items_with_price_rules": items_with_price_rules,
+        "priced_items": priced_items,
         "total_co2": total_co2,
         "material_rows": material_rows,
         "bom_rows": bom_rows,
@@ -351,7 +330,6 @@ def render_app(settings) -> None:
                         label=str(position["label"]),
                         family=str(position["family"]),
                         key=f"select_{position['position_code']}",
-                        position_code=str(position["position_code"]),
                     )
 
                     if component is not None:
@@ -383,7 +361,6 @@ def render_app(settings) -> None:
                 )
 
                 live_results = _build_live_results(
-                    settings=settings,
                     session=session,
                     selected_components=selected_components,
                     selected_pipe_key=selected_pipe_key,
@@ -411,8 +388,13 @@ def render_app(settings) -> None:
                         <div class="result-label">Totale CO₂ uitstoot</div>
                         <div class="result-value">{live_results["total_co2"]:.2f} kg CO₂e</div>
                     </div>
+                    <div class="result-highlight">
+                        <div class="result-label">Verkoopprijs</div>
+                        <div class="result-value">€ {live_results["price_summary"]["sales_price"]:.2f}</div>
+                    </div>
                     <div class="note-text">
-                        De CO₂-uitstoot wordt live bijgewerkt zodra je een keuze in de configuratie wijzigt.
+                        De prijs is gebaseerd op de echte prijs uit de database.
+                        Voor leidingen geldt de meterprijs × de ingevulde lengte.
                     </div>
                     """,
                     unsafe_allow_html=True,

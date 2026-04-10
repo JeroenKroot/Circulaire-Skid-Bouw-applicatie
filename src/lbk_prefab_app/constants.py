@@ -1,4 +1,4 @@
-"""Domeinconstanten voor de vaste module-5-template."""
+"""Domeinconstanten voor de prefab LBK-app."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ MATERIAL_COLUMNS: tuple[str, ...] = (
     "Brons",
     "Keramiek",
     "Rubber",
-    "polymeren en compositen",
+    "polymeren en composieten",
     "Injectie gevormde magneet",
     "elektra",
 )
@@ -44,6 +44,13 @@ SET_POSITIONS: tuple[dict[str, object], ...] = (
         "position_code": "AF_1",
         "label": "Kogelkraan (AF01)",
         "family": "AF01",
+        "quantity": 1,
+        "allow_na": True,
+    },
+    {
+        "position_code": "RA_1",
+        "label": "Regelafsluiter (RA-01)",
+        "family": "RA-01",
         "quantity": 1,
         "allow_na": True,
     },
@@ -82,23 +89,21 @@ PIPE_OPTIONS: tuple[dict[str, str], ...] = (
     {"family": "FF", "label": "FlowFit buis"},
 )
 
-# # Koppeling tussen de dropdown-positie en het labelvlak in de afbeelding.
 POSITION_TO_IMAGE_LABEL: dict[str, str] = {
     "PUMP": "CP01",
     "IRA_1": "IRA01",
     "IRA_2": "IRA02",
     "AF_1": "AF01",
+    "RA_1": "RA-01",
     "TI_1": "TI01",
     "TI_2": "TI02",
     "TT_1": "TT",
     "VA_1": "VA01",
 }
 
-# # Pixelgebieden van de bestaande labelvlakken in de preview-afbeelding.
-# # De bbox is: (left, top, right, bottom)
-# # Deze waarden zijn afgestemd op de huidige lbk_preview.png / LBK_Preview.png.
 IMAGE_LABEL_AREAS: dict[str, dict[str, object]] = {
     "AF01": {"bbox": (71, 202, 215, 234), "radius": 16},
+    "RA-01": {"bbox": (71, 330, 215, 362), "radius": 16},
     "CP01": {"bbox": (71, 585, 215, 618), "radius": 16},
     "TI01": {"bbox": (71, 717, 215, 749), "radius": 16},
     "TT": {"bbox": (71, 931, 215, 963), "radius": 16},
@@ -108,5 +113,4 @@ IMAGE_LABEL_AREAS: dict[str, dict[str, object]] = {
     "TI02": {"bbox": (546, 717, 689, 749), "radius": 16},
 }
 
-# # Kleur van het actieve labelvlak.
 ACTIVE_LABEL_RGB: tuple[int, int, int] = (34, 197, 94)
